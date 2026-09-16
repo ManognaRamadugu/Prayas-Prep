@@ -1,0 +1,1 @@
+GRANT SELECT ON TABLE public.student_profiles TO authenticated;

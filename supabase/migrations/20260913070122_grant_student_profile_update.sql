@@ -1,0 +1,1 @@
+GRANT UPDATE ON TABLE public.student_profiles TO authenticated;
