@@ -1,31 +1,33 @@
-import {
+﻿import {
   IsIn,
   IsInt,
   IsNotEmpty,
-  IsString,
+  IsUUID,
   Max,
   Min,
 } from 'class-validator';
 
+export type GenerateDifficulty =
+  | 'EASY'
+  | 'MEDIUM'
+  | 'HARD';
+
+export type GenerateQuestionType =
+  'SINGLE_CHOICE';
+
 export class GenerateQuestionsDto {
-  @IsString()
+  @IsUUID()
   @IsNotEmpty()
-  exam!: string;
+  conceptId!: string;
 
-  @IsString()
-  @IsNotEmpty()
-  subject!: string;
+  @IsIn(['EASY', 'MEDIUM', 'HARD'])
+  difficulty!: GenerateDifficulty;
 
-  @IsString()
-  @IsNotEmpty()
-  chapter!: string;
-
-  @IsString()
-  @IsIn(['EASY', 'MEDIUM', 'HARD', 'MIXED'])
-  difficulty!: string;
+  @IsIn(['SINGLE_CHOICE'])
+  questionType!: GenerateQuestionType;
 
   @IsInt()
   @Min(1)
-  @Max(50)
+  @Max(10)
   count!: number;
 }

@@ -1,4 +1,3 @@
-
 import {
   DarkTheme,
   DefaultTheme,
@@ -152,6 +151,11 @@ export default function RootLayout() {
           name="dashboard"
           options={{ headerShown: false }}
         />
+
+        <Stack.Screen
+          name="history"
+          options={{ headerShown: false }}
+        />
       </Stack>
     </ThemeProvider>
   );
@@ -164,4 +168,3 @@ const styles = StyleSheet.create({
     alignItems: "center",
   },
 });
-

@@ -4,6 +4,6 @@ import { QuestionGeneratorService } from './question-generator.service';
 
 @Module({
   controllers: [QuestionGeneratorController],
-  providers: [QuestionGeneratorService]
+  providers: [QuestionGeneratorService],
 })
 export class QuestionGeneratorModule {}

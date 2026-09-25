@@ -43,9 +43,11 @@ export function getDashboardData(
         { id: 'mock', label: 'Mock Test', icon: 'timer-outline', route: '/tests' },
         { id: 'performance', label: 'Performance', icon: 'stats-chart-outline', route: '/performance' },
         { id: 'doubts', label: 'Doubts', icon: 'help-buoy-outline', route: '/doubts' },
+        { id: 'history', label: 'History', icon: 'time-outline', route: '/history' },
       ],
       unreadNotifications: 3,
     },
+
     NEET: {
       studentName,
       preparationPath: 'NEET',
@@ -71,9 +73,11 @@ export function getDashboardData(
         { id: 'mock', label: 'Mock Test', icon: 'timer-outline', route: '/tests' },
         { id: 'performance', label: 'Performance', icon: 'stats-chart-outline', route: '/performance' },
         { id: 'doubts', label: 'Doubts', icon: 'help-buoy-outline', route: '/doubts' },
+        { id: 'history', label: 'History', icon: 'time-outline', route: '/history' },
       ],
       unreadNotifications: 1,
     },
+
     EAMCET: {
       studentName,
       preparationPath: 'EAMCET',
@@ -99,9 +103,11 @@ export function getDashboardData(
         { id: 'mock', label: 'Mock Test', icon: 'timer-outline', route: '/tests' },
         { id: 'performance', label: 'Performance', icon: 'stats-chart-outline', route: '/performance' },
         { id: 'doubts', label: 'Doubts', icon: 'help-buoy-outline', route: '/doubts' },
+        { id: 'history', label: 'History', icon: 'time-outline', route: '/history' },
       ],
       unreadNotifications: 0,
     },
+
     FOUNDATION: {
       studentName,
       preparationPath: 'FOUNDATION',
@@ -111,7 +117,7 @@ export function getDashboardData(
       continueLearning: {
         subjectName: 'Science',
         chapterName: 'Motion & Force',
-        topicName: 'Newton\u2019s Laws',
+        topicName: 'Newton’s Laws',
         progressPercent: 55,
         estimatedMinutesLeft: 15,
       },
@@ -127,6 +133,7 @@ export function getDashboardData(
         { id: 'mock', label: 'Mock Test', icon: 'timer-outline', route: '/tests' },
         { id: 'performance', label: 'Performance', icon: 'stats-chart-outline', route: '/performance' },
         { id: 'doubts', label: 'Doubts', icon: 'help-buoy-outline', route: '/doubts' },
+        { id: 'history', label: 'History', icon: 'time-outline', route: '/history' },
       ],
       unreadNotifications: 2,
     },

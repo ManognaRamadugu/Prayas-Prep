@@ -12,6 +12,7 @@ export type PracticeQuestion = {
   question_type: string;
   difficulty: string;
   explanation: string | null;
+  hint: string | null;
   marks: number;
   negative_marks: number;
   options: PracticeOption[];
@@ -19,7 +20,7 @@ export type PracticeQuestion = {
 
 export async function getPracticeQuestions(
   subjectId: string,
-  limit: number = 5
+  limit: number = 15
 ): Promise<PracticeQuestion[]> {
   // =========================================================
   // 1. Get curriculum-subject mappings
@@ -33,27 +34,15 @@ export async function getPracticeQuestions(
     .select("id, curriculum_id, subject_id")
     .eq("subject_id", subjectId);
 
-  console.log(
-    "DEBUG subjectId:",
-    subjectId
-  );
-
-  console.log(
-    "DEBUG curriculumSubjects:",
-    curriculumSubjects
-  );
-
-  console.log(
-    "DEBUG csError:",
-    csError
-  );
+  console.log("DEBUG subjectId:", subjectId);
+  console.log("DEBUG curriculumSubjects:", curriculumSubjects);
+  console.log("DEBUG csError:", csError);
 
   if (csError) {
     console.error(
       "Error loading curriculum subjects:",
       csError
     );
-
     throw csError;
   }
 
@@ -67,9 +56,7 @@ export async function getPracticeQuestions(
     curriculumSubjectIds
   );
 
-  if (
-    curriculumSubjectIds.length === 0
-  ) {
+  if (curriculumSubjectIds.length === 0) {
     return [];
   }
 
@@ -90,22 +77,14 @@ export async function getPracticeQuestions(
       curriculumSubjectIds
     );
 
-  console.log(
-    "DEBUG chapters:",
-    chapters
-  );
-
-  console.log(
-    "DEBUG chapterError:",
-    chapterError
-  );
+  console.log("DEBUG chapters:", chapters);
+  console.log("DEBUG chapterError:", chapterError);
 
   if (chapterError) {
     console.error(
       "Error loading chapters:",
       chapterError
     );
-
     throw chapterError;
   }
 
@@ -114,10 +93,7 @@ export async function getPracticeQuestions(
       (chapter) => chapter.id
     );
 
-  console.log(
-    "DEBUG chapterIds:",
-    chapterIds
-  );
+  console.log("DEBUG chapterIds:", chapterIds);
 
   if (chapterIds.length === 0) {
     return [];
@@ -140,22 +116,14 @@ export async function getPracticeQuestions(
       chapterIds
     );
 
-  console.log(
-    "DEBUG topics:",
-    topics
-  );
-
-  console.log(
-    "DEBUG topicError:",
-    topicError
-  );
+  console.log("DEBUG topics:", topics);
+  console.log("DEBUG topicError:", topicError);
 
   if (topicError) {
     console.error(
       "Error loading topics:",
       topicError
     );
-
     throw topicError;
   }
 
@@ -164,10 +132,7 @@ export async function getPracticeQuestions(
       (topic) => topic.id
     );
 
-  console.log(
-    "DEBUG topicIds:",
-    topicIds
-  );
+  console.log("DEBUG topicIds:", topicIds);
 
   if (topicIds.length === 0) {
     return [];
@@ -205,15 +170,13 @@ export async function getPracticeQuestions(
       "Error loading question topics:",
       qtError
     );
-
     throw qtError;
   }
 
   const questionIds = [
     ...new Set(
       (questionTopics ?? []).map(
-        (item) =>
-          item.question_id
+        (item) => item.question_id
       )
     ),
   ];
@@ -228,7 +191,7 @@ export async function getPracticeQuestions(
   }
 
   // =========================================================
-  // 5. Get questions + options
+  // 5. Get questions + hints + explanations + options
   // =========================================================
 
   const {
@@ -242,6 +205,7 @@ export async function getPracticeQuestions(
       question_type,
       difficulty,
       explanation,
+      hint,
       marks,
       negative_marks,
       question_options (
@@ -279,7 +243,6 @@ export async function getPracticeQuestions(
       "Error loading questions:",
       questionError
     );
-
     throw questionError;
   }
 
@@ -303,18 +266,18 @@ export async function getPracticeQuestions(
       explanation:
         question.explanation,
 
+      hint:
+        question.hint,
+
       marks:
         Number(question.marks),
 
       negative_marks:
-        Number(
-          question.negative_marks
-        ),
+        Number(question.negative_marks),
 
       options:
         [
-          ...(question.question_options ??
-            []),
+          ...(question.question_options ?? []),
         ].sort(
           (a, b) =>
             a.option_order -
@@ -355,8 +318,9 @@ export async function checkPracticeAnswer(
     throw error;
   }
 
-  return data as {
-    is_correct: boolean;
-    marks: number;
-  };
+ return data as {
+  is_correct: boolean;
+  marks: number;
+  correct_option_id: string;
+};
 }

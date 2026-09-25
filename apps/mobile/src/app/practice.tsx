@@ -192,6 +192,11 @@ const [attemptQuestions, setAttemptQuestions] =
   ] = useState(0);
 
   const [
+    practiceDurationSeconds,
+    setPracticeDurationSeconds,
+  ] = useState(0);
+
+  const [
     starting,
     setStarting,
   ] = useState(false);
@@ -205,6 +210,25 @@ const [attemptQuestions, setAttemptQuestions] =
     checkingAnswer,
     setCheckingAnswer,
   ] = useState(false);
+
+  const [showHint, setShowHint] = useState(false);
+  const [answerChecked, setAnswerChecked] = useState(false);
+  const [answerCorrect, setAnswerCorrect] = useState<boolean | null>(null);
+  const [correctOptionId, setCorrectOptionId] = useState<string | null>(null);
+
+  const [
+    reviewAnswers,
+    setReviewAnswers,
+  ] = useState<
+    {
+      questionId: string;
+      selectedOptionId: string;
+      correctOptionId: string;
+      isCorrect: boolean;
+    }[]
+  >([]);
+
+  const [showReview, setShowReview] = useState(false);
 
   const isStudying =
     sessionId !== null;
@@ -280,6 +304,12 @@ const [attemptQuestions, setAttemptQuestions] =
     setShowResults(false);
     setAttemptId(null);
     setAttemptQuestions([]);
+    setShowHint(false);
+    setAnswerChecked(false);
+    setAnswerCorrect(null);
+    setCorrectOptionId(null);
+    setReviewAnswers([]);
+    setShowReview(false);
 
     const selected = subjects.find(
       (subject) => subject.id === selectedSubject
@@ -373,6 +403,7 @@ const [attemptQuestions, setAttemptQuestions] =
     setSessionId(session.id);
     setStartedAt(session.started_at);
     setElapsedSeconds(0);
+    setPracticeDurationSeconds(0);
 
     console.log(
       "Practice started successfully."
@@ -398,246 +429,311 @@ const [attemptQuestions, setAttemptQuestions] =
   // =========================================================
 
   async function handleNextQuestion() {
-  if (
-    !selectedOptionId ||
-    !currentQuestion ||
-    !attemptId ||
-    checkingAnswer
-  ) {
-    return;
-  }
-
-  try {
-    setCheckingAnswer(true);
-
-    // -----------------------------------------------------
-    // Find database record for current question
-    // -----------------------------------------------------
-
-    const currentAttemptQuestion =
-      attemptQuestions.find(
-        (item) =>
-          item.question_id ===
-          currentQuestion.id
-      );
-
-    if (!currentAttemptQuestion) {
-      throw new Error(
-        "Could not find attempt question."
-      );
+    if (
+      !currentQuestion ||
+      !attemptId ||
+      checkingAnswer
+    ) {
+      return;
     }
 
     // -----------------------------------------------------
-    // Check answer securely through RPC
+    // If this question has already been checked,
+    // this button now means "Next Question" or "Finish".
     // -----------------------------------------------------
 
-    const result =
-      await checkPracticeAnswer(
-        currentQuestion.id,
-        selectedOptionId
-      );
+    if (answerChecked) {
+      if (
+        currentQuestionIndex <
+        questions.length - 1
+      ) {
+        setCurrentQuestionIndex(
+          (previous) =>
+            previous + 1
+        );
 
-    const earnedMarks =
-      Number(result.marks);
+        setSelectedOptionId(null);
+        setShowHint(false);
+        setAnswerChecked(false);
+        setAnswerCorrect(null);
+        setCorrectOptionId(null);
 
-    console.log(
-      "Answer result:",
-      result
-    );
+        return;
+      }
 
-    // -----------------------------------------------------
-    // Save answer
-    // -----------------------------------------------------
+      // ---------------------------------------------------
+      // LAST QUESTION - save final result
+      // ---------------------------------------------------
 
-    await saveStudentAnswer({
-      attemptQuestionId:
-        currentAttemptQuestion.id,
+      try {
+        setCheckingAnswer(true);
 
-      selectedOptionId,
+        const totalQuestions =
+          questions.length;
 
-      isCorrect:
-        result.is_correct,
+        const attemptedQuestions =
+          correctAnswers +
+          wrongAnswers;
 
-      marksAwarded:
-        earnedMarks,
+        const skippedQuestions =
+          totalQuestions -
+          attemptedQuestions;
 
-      timeTakenSeconds:
-        Math.max(
-          0,
+        const totalMarks =
+          questions.reduce(
+            (total, question) =>
+              total +
+              Number(question.marks),
+            0
+          );
+
+        const percentage =
+          totalMarks > 0
+            ? Number(
+                Math.max(
+                  0,
+                  Math.min(
+                    100,
+                    (score /
+                      totalMarks) *
+                      100
+                  )
+                ).toFixed(2)
+              )
+            : 0;
+
+        // -------------------------------------------------
+        // Save final result
+        // -------------------------------------------------
+
+        await savePracticeResult({
+          attemptId,
+
+          totalQuestions,
+
+          attemptedQuestions,
+
+          correctAnswers,
+
+          incorrectAnswers:
+            wrongAnswers,
+
+          skippedQuestions,
+
+          totalScore:
+            score,
+
+          percentage,
+        });
+
+        console.log(
+          "Practice result saved."
+        );
+
+        // -------------------------------------------------
+        // Submit attempt
+        // -------------------------------------------------
+
+        await submitPracticeAttempt(
+          attemptId,
+          score
+        );
+
+        console.log(
+          "Practice attempt submitted."
+        );
+
+        // -------------------------------------------------
+        // Finish study session
+        // -------------------------------------------------
+
+        if (
+          sessionId &&
+          startedAt
+        ) {
+          try {
+            await finishStudySession(
+              sessionId,
+              startedAt
+            );
+          } catch (finishError) {
+            console.error(
+              "Could not finish study session:",
+              finishError
+            );
+          }
+        }
+
+        setPracticeDurationSeconds(
           elapsedSeconds
-        ),
-    });
+        );
 
-    console.log(
-      "Student answer saved."
-    );
+        setSessionId(null);
+        setStartedAt(null);
+        setElapsedSeconds(0);
 
-    // -----------------------------------------------------
-    // Calculate updated score
-    // -----------------------------------------------------
+        // -------------------------------------------------
+        // Show results
+        // -------------------------------------------------
 
-    const updatedScore =
-      score + earnedMarks;
+        setShowResults(true);
+      } catch (error) {
+        console.error(
+          "Could not finish practice:",
+          error
+        );
 
-    const updatedCorrectAnswers =
-      result.is_correct
-        ? correctAnswers + 1
-        : correctAnswers;
-
-    const updatedWrongAnswers =
-      result.is_correct
-        ? wrongAnswers
-        : wrongAnswers + 1;
-
-    setScore(updatedScore);
-
-    setCorrectAnswers(
-      updatedCorrectAnswers
-    );
-
-    setWrongAnswers(
-      updatedWrongAnswers
-    );
-
-    // -----------------------------------------------------
-    // More questions
-    // -----------------------------------------------------
-
-    if (
-      currentQuestionIndex <
-      questions.length - 1
-    ) {
-      setCurrentQuestionIndex(
-        (previous) =>
-          previous + 1
-      );
-
-      setSelectedOptionId(null);
+        setQuestionError(
+          error instanceof Error
+            ? error.message
+            : "Could not finish practice."
+        );
+      } finally {
+        setCheckingAnswer(false);
+      }
 
       return;
     }
 
     // -----------------------------------------------------
-    // LAST QUESTION
+    // First tap - check and save the answer
     // -----------------------------------------------------
 
-    const totalQuestions =
-      questions.length;
-
-    const attemptedQuestions =
-      updatedCorrectAnswers +
-      updatedWrongAnswers;
-
-    const skippedQuestions =
-      totalQuestions -
-      attemptedQuestions;
-
-    const totalMarks =
-      questions.reduce(
-        (total, question) =>
-          total +
-          Number(question.marks),
-        0
-      );
-
-    const percentage =
-      totalMarks > 0
-        ? Number(
-            (
-              (updatedScore /
-                totalMarks) *
-              100
-            ).toFixed(2)
-          )
-        : 0;
-
-    // -----------------------------------------------------
-    // Save final result
-    // -----------------------------------------------------
-
-    await savePracticeResult({
-      attemptId,
-
-      totalQuestions,
-
-      attemptedQuestions,
-
-      correctAnswers:
-        updatedCorrectAnswers,
-
-      incorrectAnswers:
-        updatedWrongAnswers,
-
-      skippedQuestions,
-
-      totalScore:
-        updatedScore,
-
-      percentage,
-    });
-
-    console.log(
-      "Practice result saved."
-    );
-
-    // -----------------------------------------------------
-    // Submit attempt
-    // -----------------------------------------------------
-
-    await submitPracticeAttempt(
-      attemptId,
-      updatedScore
-    );
-
-    console.log(
-      "Practice attempt submitted."
-    );
-
-    // -----------------------------------------------------
-    // Finish study session
-    // -----------------------------------------------------
-
-    if (
-      sessionId &&
-      startedAt
-    ) {
-      try {
-        await finishStudySession(
-          sessionId,
-          startedAt
-        );
-      } catch (finishError) {
-        console.error(
-          "Could not finish study session:",
-          finishError
-        );
-      }
+    if (!selectedOptionId) {
+      return;
     }
 
-    setSessionId(null);
-    setStartedAt(null);
-    setElapsedSeconds(0);
+    try {
+      setCheckingAnswer(true);
 
-    // -----------------------------------------------------
-    // Show results
-    // -----------------------------------------------------
+      // ---------------------------------------------------
+      // Find database record for current question
+      // ---------------------------------------------------
 
-    setShowResults(true);
-  } catch (error) {
-    console.error(
-      "Could not process answer:",
-      error
-    );
+      const currentAttemptQuestion =
+        attemptQuestions.find(
+          (item) =>
+            item.question_id ===
+            currentQuestion.id
+        );
 
-    setQuestionError(
-      error instanceof Error
-        ? error.message
-        : "Could not save your answer."
-    );
-  } finally {
-    setCheckingAnswer(false);
+      if (!currentAttemptQuestion) {
+        throw new Error(
+          "Could not find attempt question."
+        );
+      }
+
+      // ---------------------------------------------------
+      // Check answer securely through RPC
+      // ---------------------------------------------------
+
+      const result =
+        await checkPracticeAnswer(
+          currentQuestion.id,
+          selectedOptionId
+        );
+
+      const earnedMarks =
+        Number(result.marks);
+
+      console.log(
+        "Answer result:",
+        result
+      );
+
+      // ---------------------------------------------------
+      // Save answer
+      // ---------------------------------------------------
+
+      await saveStudentAnswer({
+        attemptQuestionId:
+          currentAttemptQuestion.id,
+
+        selectedOptionId,
+
+        isCorrect:
+          result.is_correct,
+
+        marksAwarded:
+          earnedMarks,
+
+        timeTakenSeconds:
+          Math.max(
+            0,
+            elapsedSeconds
+          ),
+      });
+
+      console.log(
+        "Student answer saved."
+      );
+
+      // ---------------------------------------------------
+      // Calculate updated score
+      // ---------------------------------------------------
+
+      const updatedScore =
+        score + earnedMarks;
+
+      const updatedCorrectAnswers =
+        result.is_correct
+          ? correctAnswers + 1
+          : correctAnswers;
+
+      const updatedWrongAnswers =
+        result.is_correct
+          ? wrongAnswers
+          : wrongAnswers + 1;
+
+      setScore(updatedScore);
+
+      setCorrectAnswers(
+        updatedCorrectAnswers
+      );
+
+      setWrongAnswers(
+        updatedWrongAnswers
+      );
+
+      // ---------------------------------------------------
+      // Store feedback for this question
+      // ---------------------------------------------------
+
+      setAnswerCorrect(
+        result.is_correct
+      );
+
+      setCorrectOptionId(
+        result.correct_option_id
+      );
+
+      setReviewAnswers((previous) => [
+        ...previous,
+        {
+          questionId: currentQuestion.id,
+          selectedOptionId,
+          correctOptionId: result.correct_option_id,
+          isCorrect: result.is_correct,
+        },
+      ]);
+
+      setAnswerChecked(true);
+    } catch (error) {
+      console.error(
+        "Could not process answer:",
+        error
+      );
+
+      setQuestionError(
+        error instanceof Error
+          ? error.message
+          : "Could not save your answer."
+      );
+    } finally {
+      setCheckingAnswer(false);
+    }
   }
-}
+
   // =========================================================
   // FINISH SESSION MANUALLY
   // =========================================================
@@ -756,6 +852,11 @@ const [attemptQuestions, setAttemptQuestions] =
       correctAnswers +
       wrongAnswers;
 
+    const skipped = Math.max(
+      0,
+      questions.length - answered
+    );
+
     const accuracy =
       answered > 0
         ? Math.round(
@@ -764,6 +865,190 @@ const [attemptQuestions, setAttemptQuestions] =
               100
           )
         : 0;
+
+    const scorePercentage =
+      totalMarks > 0
+        ? Math.max(
+            0,
+            Math.round(
+              (score / totalMarks) *
+                100
+            )
+          )
+        : 0;
+
+    const subjectName =
+      subjects.find(
+        (item) =>
+          item.id === selectedSubject
+      )?.name ?? "Subject";
+
+    const performanceMessage =
+      accuracy >= 80
+        ? "Strong concept understanding. Keep practicing to maintain your consistency."
+        : accuracy >= 60
+          ? "Good progress. Review the questions you missed and strengthen those concepts."
+          : "Use this practice as a learning checkpoint. Review the explanations and try again.";
+
+    if (showReview) {
+      return (
+        <SafeAreaView
+          style={styles.safeArea}
+          edges={["top"]}
+        >
+          <ScrollView
+            style={styles.container}
+            contentContainerStyle={styles.resultsContent}
+            showsVerticalScrollIndicator={false}
+          >
+            <Pressable
+              onPress={() => setShowReview(false)}
+              style={styles.reviewBackButton}
+            >
+              <Ionicons
+                name="arrow-back"
+                size={22}
+                color={colors.textPrimary}
+              />
+              <Text style={styles.reviewBackText}>
+                Back to Results
+              </Text>
+            </Pressable>
+
+            <View style={styles.reviewHeader}>
+              <Text style={styles.reviewTitle}>
+                Review Answers
+              </Text>
+              <Text style={styles.reviewSubtitle}>
+                Review each question, your answer, and the correct answer.
+              </Text>
+            </View>
+
+            {questions.map((question, index) => {
+              const answer = reviewAnswers.find(
+                (item) => item.questionId === question.id
+              );
+
+              const selectedOption = question.options.find(
+                (option) => option.id === answer?.selectedOptionId
+              );
+
+              const correctOption = question.options.find(
+                (option) => option.id === answer?.correctOptionId
+              );
+
+              return (
+                <View
+                  key={question.id}
+                  style={styles.reviewQuestionCard}
+                >
+                  <View style={styles.reviewQuestionHeader}>
+                    <Text style={styles.reviewQuestionNumber}>
+                      Question {index + 1}
+                    </Text>
+
+                    <View
+                      style={[
+                        styles.reviewStatusBadge,
+                        answer?.isCorrect
+                          ? styles.reviewStatusCorrect
+                          : styles.reviewStatusIncorrect,
+                      ]}
+                    >
+                      <Ionicons
+                        name={
+                          answer?.isCorrect
+                            ? "checkmark-circle"
+                            : "close-circle"
+                        }
+                        size={16}
+                        color={
+                          answer?.isCorrect
+                            ? colors.success
+                            : colors.danger
+                        }
+                      />
+                      <Text
+                        style={[
+                          styles.reviewStatusText,
+                          {
+                            color: answer?.isCorrect
+                              ? colors.success
+                              : colors.danger,
+                          },
+                        ]}
+                      >
+                        {answer?.isCorrect ? "Correct" : "Incorrect"}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <Text style={styles.reviewQuestionText}>
+                    {question.question_text}
+                  </Text>
+
+                  <View style={styles.reviewAnswerBlock}>
+                    <Text style={styles.reviewLabel}>
+                      Your Answer
+                    </Text>
+                    <Text
+                      style={[
+                        styles.reviewAnswerText,
+                        answer?.isCorrect
+                          ? styles.reviewCorrectAnswerText
+                          : styles.reviewWrongAnswerText,
+                      ]}
+                    >
+                      {selectedOption?.option_text ?? "Not answered"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.reviewAnswerBlock}>
+                    <Text style={styles.reviewLabel}>
+                      Correct Answer
+                    </Text>
+                    <Text style={styles.reviewCorrectAnswerText}>
+                      {correctOption?.option_text ?? "Unavailable"}
+                    </Text>
+                  </View>
+
+                  <View style={styles.reviewMarksRow}>
+                    <Text style={styles.reviewLabel}>
+                      Marks
+                    </Text>
+                    <Text style={styles.reviewMarksText}>
+                      {answer?.isCorrect
+                        ? `+${Number(question.marks)}`
+                        : `-${Number(question.negative_marks)}`}
+                    </Text>
+                  </View>
+
+                  {question.explanation && (
+                    <View style={styles.reviewExplanation}>
+                      <Text style={styles.reviewLabel}>
+                        Explanation
+                      </Text>
+                      <Text style={styles.reviewExplanationText}>
+                        {question.explanation}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              );
+            })}
+
+            <Pressable
+              style={styles.backToResultsButton}
+              onPress={() => setShowReview(false)}
+            >
+              <Text style={styles.backToResultsText}>
+                Back to Results
+              </Text>
+            </Pressable>
+          </ScrollView>
+        </SafeAreaView>
+      );
+    }
 
     return (
       <SafeAreaView
@@ -828,7 +1113,7 @@ const [attemptQuestions, setAttemptQuestions] =
                 styles.scoreLabel
               }
             >
-              YOUR SCORE
+              {subjectName.toUpperCase()} · PRACTICE SCORE
             </Text>
 
             <Text
@@ -847,13 +1132,35 @@ const [attemptQuestions, setAttemptQuestions] =
                 / {totalMarks}
               </Text>
             </Text>
+
+            <View
+              style={
+                styles.scorePercentageBadge
+              }
+            >
+              <Text
+                style={
+                  styles.scorePercentageText
+                }
+              >
+                {scorePercentage}% score
+              </Text>
+            </View>
           </View>
 
-          {/* STATISTICS */}
+          {/* PERFORMANCE OVERVIEW */}
+
+          <Text
+            style={
+              styles.resultsSectionTitle
+            }
+          >
+            Performance Overview
+          </Text>
 
           <View
             style={
-              styles.statsRow
+              styles.statsGrid
             }
           >
             <View
@@ -861,6 +1168,14 @@ const [attemptQuestions, setAttemptQuestions] =
                 styles.statCard
               }
             >
+              <Ionicons
+                name="checkmark-circle-outline"
+                size={22}
+                color={
+                  colors.success
+                }
+              />
+
               <Text
                 style={
                   styles.statValue
@@ -883,6 +1198,14 @@ const [attemptQuestions, setAttemptQuestions] =
                 styles.statCard
               }
             >
+              <Ionicons
+                name="close-circle-outline"
+                size={22}
+                color={
+                  colors.danger
+                }
+              />
+
               <Text
                 style={
                   styles.statValue
@@ -896,7 +1219,7 @@ const [attemptQuestions, setAttemptQuestions] =
                   styles.statLabel
                 }
               >
-                Wrong
+                Incorrect
               </Text>
             </View>
 
@@ -905,6 +1228,14 @@ const [attemptQuestions, setAttemptQuestions] =
                 styles.statCard
               }
             >
+              <Ionicons
+                name="analytics-outline"
+                size={22}
+                color={
+                  colors.primary
+                }
+              />
+
               <Text
                 style={
                   styles.statValue
@@ -921,7 +1252,201 @@ const [attemptQuestions, setAttemptQuestions] =
                 Accuracy
               </Text>
             </View>
+
+            <View
+              style={
+                styles.statCard
+              }
+            >
+              <Ionicons
+                name="time-outline"
+                size={22}
+                color={
+                  colors.primary
+                }
+              />
+
+              <Text
+                style={
+                  styles.statValue
+                }
+              >
+                {formatTime(
+                  practiceDurationSeconds
+                )}
+              </Text>
+
+              <Text
+                style={
+                  styles.statLabel
+                }
+              >
+                Time Spent
+              </Text>
+            </View>
           </View>
+
+          {/* QUESTION SUMMARY */}
+
+          <View
+            style={
+              styles.summaryCard
+            }
+          >
+            <Text
+              style={
+                styles.summaryTitle
+              }
+            >
+              Question Summary
+            </Text>
+
+            <View
+              style={
+                styles.summaryRow
+              }
+            >
+              <Text
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Total Questions
+              </Text>
+
+              <Text
+                style={
+                  styles.summaryValue
+                }
+              >
+                {questions.length}
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.summaryDivider
+              }
+            />
+
+            <View
+              style={
+                styles.summaryRow
+              }
+            >
+              <Text
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Attempted
+              </Text>
+
+              <Text
+                style={
+                  styles.summaryValue
+                }
+              >
+                {answered}
+              </Text>
+            </View>
+
+            <View
+              style={
+                styles.summaryDivider
+              }
+            />
+
+            <View
+              style={
+                styles.summaryRow
+              }
+            >
+              <Text
+                style={
+                  styles.summaryLabel
+                }
+              >
+                Skipped
+              </Text>
+
+              <Text
+                style={
+                  styles.summaryValue
+                }
+              >
+                {skipped}
+              </Text>
+            </View>
+          </View>
+
+          {/* LEARNING INSIGHT */}
+
+          <View
+            style={
+              styles.insightCard
+            }
+          >
+            <View
+              style={
+                styles.insightIcon
+              }
+            >
+              <Ionicons
+                name="bulb-outline"
+                size={22}
+                color={
+                  colors.primary
+                }
+              />
+            </View>
+
+            <View
+              style={
+                styles.insightContent
+              }
+            >
+              <Text
+                style={
+                  styles.insightTitle
+                }
+              >
+                Learning Insight
+              </Text>
+
+              <Text
+                style={
+                  styles.insightText
+                }
+              >
+                {performanceMessage}
+              </Text>
+            </View>
+          </View>
+
+          {/* REVIEW ANSWERS */}
+
+          <Pressable
+            style={
+              styles.reviewButton
+            }
+            onPress={() =>
+              setShowReview(true)
+            }
+          >
+            <Ionicons
+              name="list-outline"
+              size={20}
+              color={colors.primary}
+            />
+            <Text
+              style={
+                styles.reviewButtonText
+              }
+            >
+              Review Answers
+            </Text>
+          </Pressable>
 
           {/* PRACTICE AGAIN */}
 
@@ -955,6 +1480,15 @@ const [attemptQuestions, setAttemptQuestions] =
               setWrongAnswers(
                 0
               );
+
+              setPracticeDurationSeconds(0);
+
+              setShowHint(false);
+              setAnswerChecked(false);
+              setAnswerCorrect(null);
+              setCorrectOptionId(null);
+              setReviewAnswers([]);
+              setShowReview(false);
 
               setQuestionError(
                 null
@@ -1193,6 +1727,72 @@ const [attemptQuestions, setAttemptQuestions] =
                   </Text>
                 </View>
 
+                {/* HINT */}
+
+                {currentQuestion.hint && !answerChecked && (
+                  <View
+                    style={
+                      styles.hintSection
+                    }
+                  >
+                    <Pressable
+                      onPress={() =>
+                        setShowHint(
+                          (previous) =>
+                            !previous
+                        )
+                      }
+                      style={
+                        styles.hintButton
+                      }
+                    >
+                      <Ionicons
+                        name="bulb-outline"
+                        size={20}
+                        color={
+                          colors.primary
+                        }
+                      />
+
+                      <Text
+                        style={
+                          styles.hintButtonText
+                        }
+                      >
+                        {showHint
+                          ? "Hide Hint"
+                          : "Show Hint"}
+                      </Text>
+                    </Pressable>
+
+                    {showHint && (
+                      <View
+                        style={
+                          styles.hintCard
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.hintTitle
+                          }
+                        >
+                          Hint
+                        </Text>
+
+                        <Text
+                          style={
+                            styles.hintText
+                          }
+                        >
+                          {
+                            currentQuestion.hint
+                          }
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
+
                 {/* OPTIONS */}
 
                 <View
@@ -1208,6 +1808,16 @@ const [attemptQuestions, setAttemptQuestions] =
                       const selected =
                         selectedOptionId ===
                         option.id;
+
+                      const isCorrectOption =
+                        answerChecked &&
+                        correctOptionId ===
+                          option.id;
+
+                      const isWrongSelected =
+                        answerChecked &&
+                        selected &&
+                        !answerCorrect;
 
                       const optionLabel =
                         String.fromCharCode(
@@ -1226,12 +1836,17 @@ const [attemptQuestions, setAttemptQuestions] =
                             )
                           }
                           disabled={
-                            checkingAnswer
+                            checkingAnswer ||
+                            answerChecked
                           }
                           style={[
                             styles.optionCard,
                             selected &&
                               styles.optionCardSelected,
+                            isCorrectOption &&
+                              styles.optionCardCorrect,
+                            isWrongSelected &&
+                              styles.optionCardIncorrect,
                           ]}
                         >
                           {/* RADIO */}
@@ -1275,11 +1890,121 @@ const [attemptQuestions, setAttemptQuestions] =
                               option.option_text
                             }
                           </Text>
+
+                          {isCorrectOption && (
+                            <Ionicons
+                              name="checkmark-circle"
+                              size={22}
+                              color={
+                                colors.success
+                              }
+                            />
+                          )}
+
+                          {isWrongSelected && (
+                            <Ionicons
+                              name="close-circle"
+                              size={22}
+                              color={
+                                colors.danger
+                              }
+                            />
+                          )}
                         </Pressable>
                       );
                     }
                   )}
                 </View>
+
+                {/* ANSWER FEEDBACK */}
+
+                {answerChecked && (
+                  <View
+                    style={[
+                      styles.feedbackCard,
+                      answerCorrect
+                        ? styles.feedbackCorrect
+                        : styles.feedbackIncorrect,
+                    ]}
+                  >
+                    <View
+                      style={
+                        styles.feedbackHeader
+                      }
+                    >
+                      <Ionicons
+                        name={
+                          answerCorrect
+                            ? "checkmark-circle"
+                            : "close-circle"
+                        }
+                        size={26}
+                        color={
+                          answerCorrect
+                            ? colors.success
+                            : colors.danger
+                        }
+                      />
+
+                      <Text
+                        style={
+                          styles.feedbackTitle
+                        }
+                      >
+                        {answerCorrect
+                          ? "Correct!"
+                          : "Incorrect"}
+                      </Text>
+                    </View>
+
+                    <Text
+                      style={
+                        styles.correctAnswerLabel
+                      }
+                    >
+                      Correct Answer
+                    </Text>
+
+                    <Text
+                      style={
+                        styles.correctAnswerText
+                      }
+                    >
+                      {currentQuestion.options.find(
+                        (option) =>
+                          option.id ===
+                          correctOptionId
+                      )?.option_text ??
+                        "Correct answer unavailable"}
+                    </Text>
+
+                    {currentQuestion.explanation && (
+                      <View
+                        style={
+                          styles.explanationSection
+                        }
+                      >
+                        <Text
+                          style={
+                            styles.explanationLabel
+                          }
+                        >
+                          Explanation
+                        </Text>
+
+                        <Text
+                          style={
+                            styles.explanationText
+                          }
+                        >
+                          {
+                            currentQuestion.explanation
+                          }
+                        </Text>
+                      </View>
+                    )}
+                  </View>
+                )}
 
                 {/* NEXT */}
 
@@ -1288,12 +2013,14 @@ const [attemptQuestions, setAttemptQuestions] =
                     handleNextQuestion
                   }
                   disabled={
-                    !selectedOptionId ||
+                    (!selectedOptionId &&
+                      !answerChecked) ||
                     checkingAnswer
                   }
                   style={[
                     styles.nextButton,
-                    (!selectedOptionId ||
+                    ((!selectedOptionId &&
+                      !answerChecked) ||
                       checkingAnswer) &&
                       styles.buttonDisabled,
                   ]}
@@ -1305,20 +2032,25 @@ const [attemptQuestions, setAttemptQuestions] =
                   >
                     {checkingAnswer
                       ? "Checking..."
-                      : currentQuestionIndex ===
-                          questions.length -
-                            1
-                        ? "Finish"
-                        : "Next Question"}
+                      : answerChecked
+                        ? currentQuestionIndex ===
+                            questions.length -
+                              1
+                          ? "Finish Practice"
+                          : "Next Question"
+                        : "Check Answer"}
                   </Text>
 
                   <Ionicons
                     name={
+                      answerChecked &&
                       currentQuestionIndex ===
-                      questions.length -
-                        1
+                        questions.length -
+                          1
                         ? "checkmark"
-                        : "arrow-forward"
+                        : answerChecked
+                          ? "arrow-forward"
+                          : "checkmark-circle-outline"
                     }
                     size={20}
                     color={
@@ -2081,6 +2813,161 @@ const styles =
         colors.primary,
     },
 
+    // =====================================================
+    // HINT + FEEDBACK
+    // =====================================================
+
+    hintSection: {
+      marginTop:
+        spacing.lg,
+    },
+
+    hintButton: {
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      gap: spacing.sm,
+      alignSelf: "flex-start",
+      paddingVertical:
+        spacing.sm,
+      paddingHorizontal:
+        spacing.md,
+      borderRadius:
+        radii.pill,
+      backgroundColor:
+        colors.primarySoft,
+    },
+
+    hintButtonText: {
+      ...typography.bodyStrong,
+      color:
+        colors.primary,
+    },
+
+    hintCard: {
+      marginTop:
+        spacing.sm,
+      backgroundColor:
+        colors.primarySoft,
+      borderRadius:
+        radii.lg,
+      borderWidth: 1,
+      borderColor:
+        colors.primary,
+      padding:
+        spacing.lg,
+    },
+
+    hintTitle: {
+      ...typography.bodyStrong,
+      color:
+        colors.primary,
+      marginBottom:
+        spacing.xs,
+    },
+
+    hintText: {
+      ...typography.body,
+      color:
+        colors.textPrimary,
+      lineHeight: 22,
+    },
+
+    optionCardCorrect: {
+      borderColor:
+        colors.success,
+      backgroundColor:
+        colors.primarySoft,
+    },
+
+    optionCardIncorrect: {
+      borderColor:
+        colors.danger,
+      backgroundColor:
+        colors.dangerSoft,
+    },
+
+    feedbackCard: {
+      marginTop:
+        spacing.lg,
+      borderRadius:
+        radii.lg,
+      borderWidth: 1,
+      padding:
+        spacing.lg,
+    },
+
+    feedbackCorrect: {
+      borderColor:
+        colors.success,
+      backgroundColor:
+        colors.primarySoft,
+    },
+
+    feedbackIncorrect: {
+      borderColor:
+        colors.danger,
+      backgroundColor:
+        colors.dangerSoft,
+    },
+
+    feedbackHeader: {
+      flexDirection:
+        "row",
+      alignItems:
+        "center",
+      gap: spacing.sm,
+    },
+
+    feedbackTitle: {
+      ...typography.h2,
+      color:
+        colors.textPrimary,
+    },
+
+    correctAnswerLabel: {
+      ...typography.caption,
+      color:
+        colors.textSecondary,
+      marginTop:
+        spacing.md,
+    },
+
+    correctAnswerText: {
+      ...typography.bodyStrong,
+      color:
+        colors.textPrimary,
+      marginTop:
+        spacing.xs,
+      lineHeight: 22,
+    },
+
+    explanationSection: {
+      marginTop:
+        spacing.md,
+      paddingTop:
+        spacing.md,
+      borderTopWidth: 1,
+      borderTopColor:
+        colors.border,
+    },
+
+    explanationLabel: {
+      ...typography.bodyStrong,
+      color:
+        colors.textPrimary,
+      marginBottom:
+        spacing.xs,
+    },
+
+    explanationText: {
+      ...typography.body,
+      color:
+        colors.textSecondary,
+      lineHeight: 22,
+    },
+
     nextButton: {
       flexDirection:
         "row",
@@ -2220,16 +3107,44 @@ const styles =
         colors.textSecondary,
     },
 
-    statsRow: {
+    scorePercentageBadge: {
+      marginTop:
+        spacing.md,
+      paddingHorizontal:
+        spacing.md,
+      paddingVertical:
+        spacing.xs,
+      borderRadius:
+        radii.pill,
+      backgroundColor:
+        colors.primarySoft,
+    },
+
+    scorePercentageText: {
+      ...typography.caption,
+      color:
+        colors.primary,
+    },
+
+    resultsSectionTitle: {
+      ...typography.h2,
+      color:
+        colors.textPrimary,
+      marginTop:
+        spacing.xxxl,
+      marginBottom:
+        spacing.md,
+    },
+
+    statsGrid: {
       flexDirection:
         "row",
+      flexWrap: "wrap",
       gap: spacing.sm,
-      marginTop:
-        spacing.lg,
     },
 
     statCard: {
-      flex: 1,
+      width: "48.5%",
       backgroundColor:
         colors.surface,
       borderRadius:
@@ -2257,6 +3172,255 @@ const styles =
         colors.textSecondary,
       marginTop:
         spacing.xs,
+    },
+
+    // =====================================================
+    // RESULTS SUMMARY + INSIGHT
+    // =====================================================
+
+    summaryCard: {
+      marginTop: spacing.lg,
+      backgroundColor: colors.surface,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      ...shadow.soft,
+    },
+
+    summaryTitle: {
+      ...typography.h2,
+      color: colors.textPrimary,
+      marginBottom: spacing.md,
+    },
+
+    summaryRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      paddingVertical: spacing.sm,
+    },
+
+    summaryLabel: {
+      ...typography.body,
+      color: colors.textSecondary,
+    },
+
+    summaryValue: {
+      ...typography.bodyStrong,
+      color: colors.textPrimary,
+    },
+
+    summaryDivider: {
+      height: 1,
+      backgroundColor: colors.border,
+    },
+
+    insightCard: {
+      flexDirection: "row",
+      alignItems: "flex-start",
+      gap: spacing.md,
+      marginTop: spacing.lg,
+      backgroundColor: colors.primarySoft,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      padding: spacing.lg,
+    },
+
+    insightIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: radii.pill,
+      backgroundColor: colors.surface,
+      alignItems: "center",
+      justifyContent: "center",
+    },
+
+    insightContent: {
+      flex: 1,
+    },
+
+    insightTitle: {
+      ...typography.bodyStrong,
+      color: colors.textPrimary,
+      marginBottom: spacing.xs,
+    },
+
+    insightText: {
+      ...typography.body,
+      color: colors.textSecondary,
+      lineHeight: 22,
+    },
+
+    // =====================================================
+    // QUESTION REVIEW
+    // =====================================================
+
+    reviewButton: {
+      width: "100%",
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "center",
+      gap: spacing.sm,
+      backgroundColor: colors.surface,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.primary,
+      paddingVertical: 16,
+      marginTop: spacing.xxl,
+    },
+
+    reviewButtonText: {
+      ...typography.bodyStrong,
+      color: colors.primary,
+    },
+
+    reviewBackButton: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.sm,
+      alignSelf: "flex-start",
+      marginTop: spacing.sm,
+      paddingVertical: spacing.sm,
+    },
+
+    reviewBackText: {
+      ...typography.bodyStrong,
+      color: colors.textPrimary,
+    },
+
+    reviewHeader: {
+      marginTop: spacing.xxl,
+      marginBottom: spacing.xl,
+    },
+
+    reviewTitle: {
+      ...typography.display,
+      color: colors.textPrimary,
+    },
+
+    reviewSubtitle: {
+      ...typography.body,
+      color: colors.textSecondary,
+      marginTop: spacing.sm,
+      lineHeight: 22,
+    },
+
+    reviewQuestionCard: {
+      backgroundColor: colors.surface,
+      borderRadius: radii.lg,
+      borderWidth: 1,
+      borderColor: colors.border,
+      padding: spacing.lg,
+      marginBottom: spacing.lg,
+      ...shadow.soft,
+    },
+
+    reviewQuestionHeader: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      gap: spacing.sm,
+      marginBottom: spacing.md,
+    },
+
+    reviewQuestionNumber: {
+      ...typography.bodyStrong,
+      color: colors.textPrimary,
+    },
+
+    reviewStatusBadge: {
+      flexDirection: "row",
+      alignItems: "center",
+      gap: spacing.xs,
+      borderRadius: radii.pill,
+      paddingHorizontal: spacing.sm,
+      paddingVertical: spacing.xs,
+    },
+
+    reviewStatusCorrect: {
+      backgroundColor: colors.primarySoft,
+    },
+
+    reviewStatusIncorrect: {
+      backgroundColor: colors.dangerSoft,
+    },
+
+    reviewStatusText: {
+      ...typography.micro,
+    },
+
+    reviewQuestionText: {
+      ...typography.bodyStrong,
+      color: colors.textPrimary,
+      lineHeight: 24,
+    },
+
+    reviewAnswerBlock: {
+      marginTop: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+
+    reviewLabel: {
+      ...typography.caption,
+      color: colors.textSecondary,
+      marginBottom: spacing.xs,
+    },
+
+    reviewAnswerText: {
+      ...typography.bodyStrong,
+      lineHeight: 22,
+    },
+
+    reviewCorrectAnswerText: {
+      color: colors.success,
+    },
+
+    reviewWrongAnswerText: {
+      color: colors.danger,
+    },
+
+    reviewMarksRow: {
+      flexDirection: "row",
+      alignItems: "center",
+      justifyContent: "space-between",
+      marginTop: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+
+    reviewMarksText: {
+      ...typography.bodyStrong,
+      color: colors.textPrimary,
+    },
+
+    reviewExplanation: {
+      marginTop: spacing.lg,
+      paddingTop: spacing.md,
+      borderTopWidth: 1,
+      borderTopColor: colors.border,
+    },
+
+    reviewExplanationText: {
+      ...typography.body,
+      color: colors.textSecondary,
+      lineHeight: 22,
+    },
+
+    backToResultsButton: {
+      alignItems: "center",
+      paddingVertical: spacing.lg,
+      marginTop: spacing.sm,
+      marginBottom: spacing.lg,
+    },
+
+    backToResultsText: {
+      ...typography.bodyStrong,
+      color: colors.primary,
     },
 
     backToDashboardButton: {
