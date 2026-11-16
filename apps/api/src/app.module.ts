@@ -1,16 +1,21 @@
+
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { QuestionGeneratorModule } from './question-generator/question-generator.module';
+import { StudentAccountsModule } from './student-accounts/student-accounts.module';
+import { CmsModule } from './cms/cms.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
     }),
-    QuestionGeneratorModule,
+    StudentAccountsModule,
+    CmsModule,
+
+    // AI generation remains disabled.
   ],
   controllers: [AppController],
   providers: [AppService],

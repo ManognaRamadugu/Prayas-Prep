@@ -1,6 +1,8 @@
+
 "use client";
 
-import { useMemo, useState } from "react";
+import { useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -8,91 +10,44 @@ import {
   Users,
   GraduationCap,
   UserCheck,
-  MoreHorizontal,
   Download,
   Filter,
-  ChevronDown,
-  ArrowUpRight,
   X,
+  Eye,
+  Upload,
 } from "lucide-react";
 
-type Student = {
-  id: number;
-  name: string;
-  rollNumber: string;
-  email: string;
-  className: string;
-  section: string;
-  status: "Active" | "Inactive";
-};
-
-const initialStudents: Student[] = [
-  {
-    id: 1,
-    name: "Aarav Sharma",
-    rollNumber: "PP2026001",
-    email: "aarav@example.com",
-    className: "Class 10",
-    section: "A",
-    status: "Active",
-  },
-  {
-    id: 2,
-    name: "Ananya Reddy",
-    rollNumber: "PP2026002",
-    email: "ananya@example.com",
-    className: "Class 10",
-    section: "A",
-    status: "Active",
-  },
-  {
-    id: 3,
-    name: "Rahul Kumar",
-    rollNumber: "PP2026003",
-    email: "rahul@example.com",
-    className: "Class 10",
-    section: "B",
-    status: "Active",
-  },
-  {
-    id: 4,
-    name: "Diya Patel",
-    rollNumber: "PP2026004",
-    email: "diya@example.com",
-    className: "Class 9",
-    section: "A",
-    status: "Inactive",
-  },
-  {
-    id: 5,
-    name: "Arjun Reddy",
-    rollNumber: "PP2026005",
-    email: "arjun@example.com",
-    className: "Class 9",
-    section: "B",
-    status: "Active",
-  },
-  {
-    id: 6,
-    name: "Saanvi Rao",
-    rollNumber: "PP2026006",
-    email: "saanvi@example.com",
-    className: "Class 10",
-    section: "A",
-    status: "Active",
-  },
-];
+import BulkUploadModal from "./components/BulkUploadModal";
+import { useStudents } from "./hooks/useStudents";
+import type { Student, StudentFormData } from "./types/student";
 
 export default function StudentsPage() {
-  const [students, setStudents] = useState(initialStudents);
-  const [search, setSearch] = useState("");
-  const [classFilter, setClassFilter] = useState("All Classes");
-  const [statusFilter, setStatusFilter] = useState("All Status");
+  const {
+    students,
+    filteredStudents,
+    loading,
+    loadError,
+    activeCount,
+    search,
+    setSearch,
+    classFilter,
+    setClassFilter,
+    sectionFilter,
+    setSectionFilter,
+    statusFilter,
+    setStatusFilter,
+    addStudent,
+    importStudents,
+  } = useStudents();
+
   const [showAddForm, setShowAddForm] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [selectedStudent, setSelectedStudent] =
     useState<Student | null>(null);
-
-  const [newStudent, setNewStudent] = useState({
+  const [formMessage, setFormMessage] = useState("");
+  const [messageIsError, setMessageIsError] = useState(false);
+  const [isSavingStudent, setIsSavingStudent] = useState(false);
+  const [newStudent, setNewStudent] = useState<StudentFormData>({
     name: "",
     rollNumber: "",
     email: "",
@@ -100,47 +55,32 @@ export default function StudentsPage() {
     section: "A",
   });
 
-  const filteredStudents = useMemo(() => {
-    return students.filter((student) => {
-      const matchesSearch =
-        student.name.toLowerCase().includes(search.toLowerCase()) ||
-        student.rollNumber.toLowerCase().includes(search.toLowerCase()) ||
-        student.email.toLowerCase().includes(search.toLowerCase());
-
-      const matchesClass =
-        classFilter === "All Classes" ||
-        student.className === classFilter;
-
-      const matchesStatus =
-        statusFilter === "All Status" ||
-        student.status === statusFilter;
-
-      return matchesSearch && matchesClass && matchesStatus;
-    });
-  }, [students, search, classFilter, statusFilter]);
-
-  const activeCount = students.filter(
-    (student) => student.status === "Active"
-  ).length;
-
-  function handleAddStudent(event: React.FormEvent<HTMLFormElement>) {
+  async function handleAddStudent(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setIsSavingStudent(true);
 
-    const student: Student = {
-      id: Date.now(),
-      ...newStudent,
-      status: "Active",
-    };
+    try {
+      const result = await addStudent(newStudent);
+      setFormMessage(result.message);
+      setMessageIsError(!result.success);
 
-    setStudents((previous) => [student, ...previous]);
-    setNewStudent({
-      name: "",
-      rollNumber: "",
-      email: "",
-      className: "Class 10",
-      section: "A",
-    });
-    setShowAddForm(false);
+      if (result.success) {
+        setNewStudent({
+          name: "",
+          rollNumber: "",
+          email: "",
+          className: "Class 10",
+          section: "A",
+        });
+        setShowAddForm(false);
+        setFormMessage("");
+      }
+    } catch {
+      setFormMessage("Unable to save the student. Please try again.");
+      setMessageIsError(true);
+    } finally {
+      setIsSavingStudent(false);
+    }
   }
 
   function exportStudents() {
@@ -165,324 +105,437 @@ export default function StudentsPage() {
     const csv = [headings, ...rows]
       .map((row) =>
         row
-          .map((value) => `"${String(value).replace(/"/g, '""')}"`)
+          .map(
+            (value) =>
+              `"${String(value).replace(/"/g, '""')}"`
+          )
           .join(",")
       )
       .join("\n");
 
-    const blob = new Blob([csv], {
+    const blob = new Blob(["\uFEFF", csv], {
       type: "text/csv;charset=utf-8;",
     });
 
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
+
     link.href = url;
     link.download = "prayas-prep-students.csv";
+    document.body.appendChild(link);
     link.click();
+    link.remove();
     URL.revokeObjectURL(url);
   }
 
-  return (
-    <div className="min-h-screen bg-slate-50 p-5 sm:p-8">
-      {/* Page heading */}
-      <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
-        <div>
-          <div className="mb-2 flex items-center gap-2 text-sm text-slate-500">
-            <Link href="/admin" className="hover:text-blue-700">
-              Dashboard
-            </Link>
-            <span>/</span>
-            <span className="text-blue-700">Students</span>
-          </div>
+  const inputClass =
+    "w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100";
 
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
-            Students Management
-          </h1>
+  const selectClass =
+    "rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none focus:border-blue-500";
+  return(
 
-          <p className="mt-2 text-sm text-slate-500">
-            Manage student records, classes, and enrollment.
-          </p>
+<main className="min-h-screen bg-slate-50 p-4 text-slate-800 sm:p-6 lg:p-8">
+  <div className="mx-auto max-w-7xl space-y-6">
+    {/* Page heading */}
+    <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+      <div>
+        <div className="mb-2 text-sm text-slate-500">
+          <Link href="/admin" className="hover:text-blue-600">
+            Admin
+          </Link>
+          <span className="mx-2">/</span>
+          <span>Students</span>
         </div>
 
+        <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+          Student Management
+        </h1>
+
+        <p className="mt-1 text-sm text-slate-500">
+          View, search, filter and manage student records.
+        </p>
+      </div>
+
+      <div className="flex flex-wrap gap-3">
         <button
-          onClick={() => setShowAddForm(true)}
-          className="flex items-center justify-center gap-2 rounded-xl bg-blue-700 px-5 py-3 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-800"
+          type="button"
+          onClick={exportStudents}
+          disabled={loading}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+        >
+          <Download size={17} />
+          Export CSV
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setShowBulkUpload(true)}
+          disabled={loading}
+          className="inline-flex items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-4 py-2.5 text-sm font-medium hover:bg-slate-100 disabled:opacity-50"
+        >
+          <Upload size={17} />
+          Student Upload
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            setFormMessage("");
+            setMessageIsError(false);
+            setShowAddForm(true);
+          }}
+          disabled={loading}
+          className="inline-flex items-center justify-center gap-2 rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 disabled:opacity-50"
         >
           <Plus size={18} />
           Add Student
         </button>
       </div>
+    </div>
 
-      {/* Statistics cards */}
-      <div className="mb-8 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard
-          title="Total Students"
-          value={students.length.toLocaleString()}
-          subtitle="Students in this demo"
-          icon={<Users size={21} />}
-          iconBg="bg-blue-100 text-blue-700"
-        />
-
-        <StatCard
-          title="Active Students"
-          value={activeCount.toLocaleString()}
-          subtitle="Currently active"
-          icon={<UserCheck size={21} />}
-          iconBg="bg-emerald-100 text-emerald-700"
-        />
-
-        <StatCard
-          title="Classes"
-          value={new Set(students.map((student) => student.className)).size.toString()}
-          subtitle="Classes represented"
-          icon={<GraduationCap size={21} />}
-          iconBg="bg-violet-100 text-violet-700"
-        />
-
-        <StatCard
-          title="Inactive Students"
-          value={(students.length - activeCount).toLocaleString()}
-          subtitle="Not currently active"
-          icon={<Users size={21} />}
-          iconBg="bg-amber-100 text-amber-700"
-        />
+    {/* Database loading and error messages */}
+    {loadError && (
+      <div
+        role="alert"
+        className="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+      >
+        {loadError}
       </div>
+    )}
 
-      {/* Students table */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col justify-between gap-4 border-b border-slate-100 p-5 lg:flex-row lg:items-center">
+    {loading && (
+      <div
+        role="status"
+        className="rounded-lg border border-blue-100 bg-blue-50 p-4 text-sm text-blue-700"
+      >
+        Loading students from the database...
+      </div>
+    )}
+
+    {/* Statistics */}
+    <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+      <StatCard
+        title="Total Students"
+        value={students.length}
+        description="Students in this school"
+        icon={<Users size={21} />}
+      />
+
+      <StatCard
+        title="Active Students"
+        value={activeCount}
+        description="Currently marked active"
+        icon={<UserCheck size={21} />}
+      />
+
+      <StatCard
+        title="Classes"
+        value={
+          new Set(students.map((student) => student.className)).size
+        }
+        description="Classes represented in the records"
+        icon={<GraduationCap size={21} />}
+      />
+    </div>
+
+    {/* Student table */}
+    <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+      <div className="border-b border-slate-100 p-5">
+        <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
           <div>
-            <h2 className="text-lg font-bold text-slate-900">
+            <h2 className="text-lg font-semibold text-slate-900">
               All Students
             </h2>
+
             <p className="mt-1 text-sm text-slate-500">
-              Search and filter student records.
+              Showing {filteredStudents.length} of {students.length} students
             </p>
           </div>
 
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <div className="relative">
-              <Search
-                size={18}
-                className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
-              <input
-                value={search}
-                onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search students..."
-                aria-label="Search students"
-                className="w-full rounded-xl border border-slate-200 py-2.5 pl-10 pr-4 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100 sm:w-60"
-              />
-            </div>
+          <div className="relative w-full lg:max-w-sm">
+            <Search
+              size={18}
+              className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"
+            />
 
-            <div className="relative">
-              <Filter
-                size={16}
-                className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500"
-              />
+            <input
+              type="search"
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search name, roll number or email..."
+              className="w-full rounded-lg border border-slate-200 py-2.5 pl-10 pr-3 text-sm outline-none focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
+            />
+          </div>
+        </div>
+      </div>
+
+            {/* Filters */}
+            <div className="mt-4 flex flex-wrap items-center gap-3">
+              <span className="inline-flex items-center gap-2 text-sm font-medium text-slate-500">
+                <Filter size={16} />
+                Filters
+              </span>
+
               <select
-                value={classFilter}
-                onChange={(event) => setClassFilter(event.target.value)}
                 aria-label="Filter by class"
-                className="w-full appearance-none rounded-xl border border-slate-200 bg-white py-2.5 pl-9 pr-9 text-sm outline-none focus:border-blue-500 sm:w-40"
+                value={classFilter}
+                onChange={(event) =>
+                  setClassFilter(event.target.value)
+                }
+                className={selectClass}
               >
                 <option>All Classes</option>
-                <option>Class 9</option>
-                <option>Class 10</option>
-                <option>Class 11</option>
-                <option>Class 12</option>
+
+                {Array.from(
+                  new Set(
+                    students.map((student) => student.className)
+                  )
+                )
+                  .sort(
+                    (a, b) =>
+                      Number(a.match(/\d+/)?.[0] ?? 0) -
+                      Number(b.match(/\d+/)?.[0] ?? 0)
+                  )
+                  .map((className) => (
+                    <option key={className} value={className}>
+                      {className}
+                    </option>
+                  ))}
               </select>
-              <ChevronDown
-                size={15}
-                className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400"
-              />
+
+              <select
+                aria-label="Filter by section"
+                value={sectionFilter}
+                onChange={(event) =>
+                  setSectionFilter(event.target.value)
+                }
+                className={selectClass}
+              >
+                <option>All Sections</option>
+
+                {Array.from(
+                  new Set(
+                    students.map((student) => student.section)
+                  )
+                )
+                  .sort()
+                  .map((section) => (
+                    <option key={section} value={section}>
+                      Section {section}
+                    </option>
+                  ))}
+              </select>
+
+              <select
+                aria-label="Filter by status"
+                value={statusFilter}
+                onChange={(event) =>
+                  setStatusFilter(event.target.value)
+                }
+                className={selectClass}
+              >
+                <option>All Status</option>
+                <option>Active</option>
+                <option>Inactive</option>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => {
+                  setSearch("");
+                  setClassFilter("All Classes");
+                  setSectionFilter("All Sections");
+                  setStatusFilter("All Status");
+                }}
+                className="text-sm font-medium text-blue-600 hover:text-blue-800"
+              >
+                Clear filters
+              </button>
             </div>
 
-            <button
-              onClick={exportStudents}
-              className="flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:bg-slate-50"
-            >
-              <Download size={17} />
-              Export
-            </button>
-          </div>
-        </div>
-
-        {/* Status filters */}
-        <div className="flex flex-wrap gap-2 px-5 pt-4">
-          {["All Status", "Active", "Inactive"].map((status) => (
-            <button
-              key={status}
-              onClick={() => setStatusFilter(status)}
-              className={`rounded-lg px-3 py-2 text-sm font-medium transition ${
-                statusFilter === status
-                  ? "bg-blue-50 text-blue-700"
-                  : "text-slate-500 hover:bg-slate-50"
-              }`}
-            >
-              {status}
-            </button>
-          ))}
-        </div>
-
-        <div className="mt-4 overflow-x-auto">
-          <table className="w-full min-w-[760px] text-left">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wider text-slate-500">
-              <tr>
-                <th className="px-5 py-4 font-semibold">Student</th>
-                <th className="px-5 py-4 font-semibold">Roll Number</th>
-                <th className="px-5 py-4 font-semibold">Class</th>
-                <th className="px-5 py-4 font-semibold">Status</th>
-                <th className="px-5 py-4 text-right font-semibold">
-                  Actions
-                </th>
-              </tr>
-            </thead>
-
-            <tbody className="divide-y divide-slate-100">
-              {filteredStudents.map((student) => (
-                <tr
-                  key={student.id}
-                  className="transition hover:bg-slate-50/70"
-                >
-                  <td className="px-5 py-4">
-                    <div className="flex items-center gap-3">
-                      <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-100 text-sm font-bold text-blue-700">
-                        {student.name
-                          .split(" ")
-                          .map((part) => part[0])
-                          .join("")
-                          .slice(0, 2)}
-                      </div>
-
-                      <div>
-                        <p className="font-semibold text-slate-800">
-                          {student.name}
-                        </p>
-                        <p className="mt-1 text-xs text-slate-500">
-                          {student.email}
-                        </p>
-                      </div>
-                    </div>
-                  </td>
-
-                  <td className="px-5 py-4 text-sm text-slate-600">
-                    {student.rollNumber}
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <p className="text-sm font-medium text-slate-700">
-                      {student.className}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-500">
-                      Section {student.section}
-                    </p>
-                  </td>
-
-                  <td className="px-5 py-4">
-                    <span
-                      className={`inline-flex items-center gap-2 rounded-full px-3 py-1.5 text-xs font-semibold ${
-                        student.status === "Active"
-                          ? "bg-emerald-50 text-emerald-700"
-                          : "bg-slate-100 text-slate-600"
-                      }`}
-                    >
-                      <span
-                        className={`h-1.5 w-1.5 rounded-full ${
-                          student.status === "Active"
-                            ? "bg-emerald-500"
-                            : "bg-slate-400"
-                        }`}
-                      />
-                      {student.status}
-                    </span>
-                  </td>
-
-                  <td className="px-5 py-4 text-right">
-                    <button
-                      onClick={() => setSelectedStudent(student)}
-                      aria-label={`View ${student.name}`}
-                      className="rounded-lg p-2 text-slate-500 transition hover:bg-blue-50 hover:text-blue-700"
-                    >
-                      <MoreHorizontal size={20} />
-                    </button>
-                  </td>
-                </tr>
-              ))}
-
-              {filteredStudents.length === 0 && (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[760px] text-left text-sm">
+              <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
                 <tr>
-                  <td
-                    colSpan={5}
-                    className="px-5 py-12 text-center text-sm text-slate-500"
-                  >
-                    No students found. Try changing your search or filters.
-                  </td>
+                  <th className="px-5 py-4 font-semibold">Student</th>
+                  <th className="px-5 py-4 font-semibold">
+                    Roll Number
+                  </th>
+                  <th className="px-5 py-4 font-semibold">Class</th>
+                  <th className="px-5 py-4 font-semibold">Section</th>
+                  <th className="px-5 py-4 font-semibold">Status</th>
+                  <th className="px-5 py-4 text-right font-semibold">
+                    Action
+                  </th>
                 </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+              </thead>
 
-        <div className="flex flex-col justify-between gap-3 border-t border-slate-100 px-5 py-4 text-sm text-slate-500 sm:flex-row sm:items-center">
-          <p>
-            Showing{" "}
-            <span className="font-semibold text-slate-700">
-              {filteredStudents.length}
-            </span>{" "}
-            of{" "}
-            <span className="font-semibold text-slate-700">
-              {students.length}
-            </span>{" "}
-            students
-          </p>
+              <tbody className="divide-y divide-slate-100">
+                {filteredStudents.map((student) => (
+                  <tr
+                    key={student.id}
+                    className="transition hover:bg-slate-50"
+                  >
+                    <td className="px-5 py-4">
+                      <div className="flex items-center gap-3">
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-blue-50 font-semibold text-blue-700">
+                          {student.name
+                            .split(" ")
+                            .map((part) => part[0])
+                            .slice(0, 2)
+                            .join("")
+                            .toUpperCase()}
+                        </div>
 
-          <div className="flex items-center gap-2 text-xs">
-            <span className="flex items-center gap-1">
-              <ArrowUpRight size={14} className="text-blue-600" />
-              Student records
-            </span>
+                        <div>
+                          <p className="font-semibold text-slate-800">
+                            {student.name}
+                          </p>
+                          <p className="mt-1 text-xs text-slate-500">
+                            {student.email}
+                          </p>
+                        </div>
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4 font-medium text-slate-600">
+                      {student.rollNumber}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      {student.className}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <span className="rounded-md bg-slate-100 px-2.5 py-1 font-medium">
+                        {student.section}
+                      </span>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-1 text-xs font-semibold ${
+                          student.status === "Active"
+                            ? "bg-emerald-50 text-emerald-700"
+                            : "bg-slate-100 text-slate-600"
+                        }`}
+                      >
+                        {student.status}
+                      </span>
+                    </td>
+
+                    <td className="px-5 py-4 text-right">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedStudent(student)}
+                        className="inline-flex items-center gap-1.5 rounded-lg border border-slate-200 px-3 py-2 text-sm font-medium hover:bg-slate-100"
+                      >
+                        <Eye size={15} />
+                        View
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+
+                {filteredStudents.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={6}
+                      className="px-5 py-12 text-center"
+                    >
+                      <Users
+                        size={32}
+                        className="mx-auto mb-3 text-slate-300"
+                      />
+
+                      <p className="font-semibold text-slate-700">
+                        No students found
+                      </p>
+
+                      <p className="mt-1 text-sm text-slate-500">
+                        Try changing your search or filters.
+                      </p>
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
           </div>
-        </div>
-      </section>
 
-      {/* Add student modal */}
+                    <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
+            Students are sorted by class, section and name.
+          </div>
+        </section>
+      </div>
+
+      {/* Add Student Modal */}
       {showAddForm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/40 p-4">
-          <div className="my-8 w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl">
-            <div className="mb-6 flex items-start justify-between">
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-900/50 p-4"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              setShowAddForm(false);
+              setFormMessage("");
+            }
+          }}
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-student-title"
+            className="my-auto w-full max-w-lg rounded-2xl bg-white p-6 shadow-xl"
+          >
+            <div className="mb-5 flex items-start justify-between gap-4">
               <div>
-                <h2 className="text-xl font-bold text-slate-900">
-                  Add Student
+                <h2
+                  id="add-student-title"
+                  className="text-xl font-bold text-slate-900"
+                >
+                  Add New Student
                 </h2>
+
                 <p className="mt-1 text-sm text-slate-500">
-                  Add a student to this demo list.
+                  Enter the student's details below.
                 </p>
               </div>
 
               <button
-                onClick={() => setShowAddForm(false)}
-                aria-label="Close form"
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                type="button"
+                onClick={() => {
+                  setShowAddForm(false);
+                  setFormMessage("");
+                }}
+                aria-label="Close add student form"
+                className="rounded-lg p-2 hover:bg-slate-100"
               >
-                <X size={20} />
+                <X size={19} />
               </button>
             </div>
 
             <form onSubmit={handleAddStudent} className="space-y-4">
-              <FormField label="Student Name">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">
+                  Full name
+                </label>
                 <input
                   required
                   value={newStudent.name}
                   onChange={(event) =>
-                    setNewStudent({ ...newStudent, name: event.target.value })
+                    setNewStudent({
+                      ...newStudent,
+                      name: event.target.value,
+                    })
                   }
                   placeholder="Enter full name"
-                  className="form-input"
+                  className={inputClass}
                 />
-              </FormField>
+              </div>
 
-              <FormField label="Roll Number">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">
+                  Roll number
+                </label>
                 <input
                   required
                   value={newStudent.rollNumber}
@@ -493,26 +546,35 @@ export default function StudentsPage() {
                     })
                   }
                   placeholder="e.g. PP2026007"
-                  className="form-input"
+                  className={inputClass}
                 />
-              </FormField>
+              </div>
 
-              <FormField label="Email Address">
+              <div>
+                <label className="mb-1.5 block text-sm font-medium">
+                  Email
+                </label>
                 <input
-                  required
                   type="email"
                   value={newStudent.email}
                   onChange={(event) =>
-                    setNewStudent({ ...newStudent, email: event.target.value })
+                    setNewStudent({
+                      ...newStudent,
+                      email: event.target.value,
+                    })
                   }
                   placeholder="student@example.com"
-                  className="form-input"
+                  className={inputClass}
                 />
-              </FormField>
+              </div>
 
-              <div className="grid grid-cols-2 gap-4">
-                <FormField label="Class">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">
+                    Class
+                  </label>
                   <select
+                    required
                     value={newStudent.className}
                     onChange={(event) =>
                       setNewStudent({
@@ -520,17 +582,28 @@ export default function StudentsPage() {
                         className: event.target.value,
                       })
                     }
-                    className="form-input"
+                    className={inputClass}
                   >
-                    <option>Class 9</option>
-                    <option>Class 10</option>
-                    <option>Class 11</option>
-                    <option>Class 12</option>
+                    {Array.from(
+                      { length: 12 },
+                      (_, index) => index + 1
+                    ).map((classNumber) => (
+                      <option
+                        key={classNumber}
+                        value={`Class ${classNumber}`}
+                      >
+                        Class {classNumber}
+                      </option>
+                    ))}
                   </select>
-                </FormField>
+                </div>
 
-                <FormField label="Section">
+                <div>
+                  <label className="mb-1.5 block text-sm font-medium">
+                    Section
+                  </label>
                   <select
+                    required
                     value={newStudent.section}
                     onChange={(event) =>
                       setNewStudent({
@@ -538,143 +611,188 @@ export default function StudentsPage() {
                         section: event.target.value,
                       })
                     }
-                    className="form-input"
+                    className={inputClass}
                   >
-                    <option>A</option>
-                    <option>B</option>
-                    <option>C</option>
-                    <option>D</option>
+                    {["A", "B", "C", "D", "E"].map((section) => (
+                      <option key={section} value={section}>
+                        Section {section}
+                      </option>
+                    ))}
                   </select>
-                </FormField>
+                </div>
               </div>
 
-              <div className="flex justify-end gap-3 pt-4">
+              {formMessage && (
+                <p
+                  role="alert"
+                  className={`text-sm ${
+                    messageIsError
+                      ? "text-red-600"
+                      : "text-emerald-700"
+                  }`}
+                >
+                  {formMessage}
+                </p>
+              )}
+
+              <div className="flex justify-end gap-3 border-t border-slate-100 pt-4">
                 <button
                   type="button"
-                  onClick={() => setShowAddForm(false)}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-600 hover:bg-slate-50"
+                  onClick={() => {
+                    setShowAddForm(false);
+                    setFormMessage("");
+                  }}
+                  className="rounded-lg border border-slate-200 px-4 py-2.5 text-sm font-medium hover:bg-slate-50"
                 >
                   Cancel
                 </button>
 
                 <button
-                  type="submit"
-                  className="rounded-xl bg-blue-700 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-800"
-                >
-                  Add Student
+       type="submit"
+       disabled={isSavingStudent}
+       className="rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+>
+                  {isSavingStudent ? "Saving..." : "Save Student"}
                 </button>
+                
               </div>
             </form>
-          </div>
+          </section>
         </div>
       )}
 
-      {/* Student details modal */}
+      {/* Bulk Upload Modal — separate from Add Student Modal */}
+      {showBulkUpload && (
+        <BulkUploadModal
+          onClose={() => setShowBulkUpload(false)}
+          onImport={importStudents}
+        />
+      )}
+
+      {/* Student Details Modal */}
       {selectedStudent && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/40 p-4">
-          <div className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4">
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="student-details-title"
+            className="w-full max-w-md rounded-2xl bg-white p-6 shadow-xl"
+          >
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="text-xl font-bold text-slate-900">
+              <h2
+                id="student-details-title"
+                className="text-xl font-bold text-slate-900"
+              >
                 Student Details
               </h2>
+
               <button
+                type="button"
                 onClick={() => setSelectedStudent(null)}
                 aria-label="Close student details"
-                className="rounded-lg p-2 text-slate-500 hover:bg-slate-100"
+                className="rounded-lg p-2 hover:bg-slate-100"
               >
-                <X size={20} />
+                <X size={19} />
               </button>
             </div>
 
-            <div className="mb-5 flex items-center gap-4">
+            <div className="mb-5 flex items-center gap-4 rounded-xl bg-slate-50 p-4">
               <div className="flex h-14 w-14 items-center justify-center rounded-full bg-blue-100 text-lg font-bold text-blue-700">
                 {selectedStudent.name
                   .split(" ")
                   .map((part) => part[0])
+                  .slice(0, 2)
                   .join("")
-                  .slice(0, 2)}
+                  .toUpperCase()}
               </div>
+
               <div>
-                <h3 className="font-bold text-slate-900">
+                <h3 className="font-semibold text-slate-900">
                   {selectedStudent.name}
                 </h3>
-                <p className="text-sm text-slate-500">
+                <p className="mt-1 text-sm text-slate-500">
                   {selectedStudent.rollNumber}
                 </p>
               </div>
             </div>
 
-            <div className="space-y-4 rounded-xl bg-slate-50 p-4 text-sm">
-              <DetailRow label="Email" value={selectedStudent.email} />
-              <DetailRow label="Class" value={selectedStudent.className} />
-              <DetailRow label="Section" value={selectedStudent.section} />
-              <DetailRow label="Status" value={selectedStudent.status} />
+            <div className="space-y-4">
+              <DetailRow
+                label="Email"
+                value={selectedStudent.email}
+              />
+              <DetailRow
+                label="Class"
+                value={selectedStudent.className}
+              />
+              <DetailRow
+                label="Section"
+                value={selectedStudent.section}
+              />
+              <DetailRow
+                label="Status"
+                value={selectedStudent.status}
+              />
             </div>
 
             <button
+              type="button"
               onClick={() => setSelectedStudent(null)}
-              className="mt-5 w-full rounded-xl bg-blue-700 px-4 py-3 text-sm font-semibold text-white hover:bg-blue-800"
+              className="mt-6 w-full rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
             >
               Close
             </button>
-          </div>
+          </section>
         </div>
       )}
-    </div>
+    </main>
   );
 }
 
 function StatCard({
   title,
   value,
-  subtitle,
+  description,
   icon,
-  iconBg,
 }: {
   title: string;
-  value: string;
-  subtitle: string;
-  icon: React.ReactNode;
-  iconBg: string;
+  value: number;
+  description: string;
+  icon: ReactNode;
 }) {
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md">
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <div className="flex items-start justify-between">
         <div>
-          <p className="text-sm font-medium text-slate-500">{title}</p>
-          <p className="mt-3 text-3xl font-bold tracking-tight text-slate-900">
+          <p className="text-sm font-medium text-slate-500">
+            {title}
+          </p>
+          <p className="mt-2 text-3xl font-bold text-slate-900">
             {value}
           </p>
         </div>
-        <div className={`rounded-xl p-3 ${iconBg}`}>{icon}</div>
+
+        <div className="rounded-xl bg-blue-50 p-3 text-blue-600">
+          {icon}
+        </div>
       </div>
-      <p className="mt-4 text-xs text-slate-500">{subtitle}</p>
-    </div>
+
+      <p className="mt-3 text-xs text-slate-500">{description}</p>
+    </section>
   );
 }
 
-function FormField({
+function DetailRow({
   label,
-  children,
+  value,
 }: {
   label: string;
-  children: React.ReactNode;
+  value: string;
 }) {
   return (
-    <label className="block">
-      <span className="mb-2 block text-sm font-medium text-slate-700">
-        {label}
-      </span>
-      {children}
-    </label>
-  );
-}
-
-function DetailRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <span className="text-slate-500">{label}</span>
-      <span className="break-all text-right font-medium text-slate-800">
+    <div className="flex flex-col gap-1 border-b border-slate-100 pb-3 sm:flex-row sm:items-center sm:justify-between">
+      <span className="text-sm text-slate-500">{label}</span>
+      <span className="break-all text-sm font-medium text-slate-800">
         {value}
       </span>
     </div>

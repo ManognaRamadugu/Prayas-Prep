@@ -1,136 +1,59 @@
-"use client";
 
-import { FormEvent, useState } from "react";
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
+import Link from "next/link";
 
 export default function RegisterPage() {
-  const router = useRouter();
-
-  const [fullName, setFullName] = useState("");
-  const [email, setEmail] = useState("");
-  const [password, setPassword] = useState("");
-  const [confirmPassword, setConfirmPassword] = useState("");
-
-  const [error, setError] = useState("");
-  const [message, setMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-
-  async function handleRegister(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-
-    setError("");
-    setMessage("");
-
-    if (!fullName.trim()) {
-      setError("Please enter your full name.");
-      return;
-    }
-
-    if (password.length < 6) {
-      setError("Password must contain at least 6 characters.");
-      return;
-    }
-
-    if (password !== confirmPassword) {
-      setError("Passwords do not match.");
-      return;
-    }
-
-    setLoading(true);
-
-    const supabase = createClient();
-
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: {
-          full_name: fullName.trim(),
-        },
-      },
-    });
-
-    if (error) {
-      setError(error.message);
-      setLoading(false);
-      return;
-    }
-
-    setLoading(false);
-
-    if (data.session) {
-      router.push("/");
-      router.refresh();
-      return;
-    }
-
-    setMessage(
-      "Account created! Please check your email to confirm your account."
-    );
-  }
-
   return (
-    <main>
-      <h1>Create your Prayas Prep account</h1>
-
-      <form onSubmit={handleRegister}>
-        <div>
-          <label htmlFor="fullName">Full Name</label>
-          <input
-            id="fullName"
-            type="text"
-            value={fullName}
-            onChange={(event) => setFullName(event.target.value)}
-            placeholder="Enter your full name"
-            required
-          />
+    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10 font-sans">
+      <div className="w-full max-w-lg rounded-3xl bg-white p-8 shadow-xl sm:p-12">
+        <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[#101d40] text-2xl font-bold text-white">
+          P
         </div>
 
-        <div>
-          <label htmlFor="email">Email</label>
-          <input
-            id="email"
-            type="email"
-            value={email}
-            onChange={(event) => setEmail(event.target.value)}
-            placeholder="Enter your email"
-            required
-          />
+        <p className="mt-8 text-sm font-semibold uppercase tracking-widest text-blue-700">
+          Join Prayas Prep
+        </p>
+
+        <h1 className="mt-3 text-3xl font-bold text-slate-900">
+          Activate your account
+        </h1>
+
+        <p className="mt-4 text-sm leading-7 text-slate-600">
+          Student accounts are created through your school.
+          To get started, ask your school administrator for
+          your username and activation code.
+        </p>
+
+        <div className="mt-7 rounded-2xl border border-blue-100 bg-blue-50 p-5">
+          <h2 className="font-semibold text-slate-900">
+            Already have your activation details?
+          </h2>
+
+          <p className="mt-2 text-sm leading-6 text-slate-600">
+            Activate your account using your username,
+            activation code, and a new password.
+          </p>
+
+          <Link
+            href="/student-activation"
+            className="mt-5 flex w-full items-center justify-center rounded-xl bg-[#172b59] px-4 py-3.5 text-sm font-semibold text-white shadow-md transition hover:bg-[#223d79]"
+          >
+            Activate Student Account
+          </Link>
         </div>
 
-        <div>
-          <label htmlFor="password">Password</label>
-          <input
-            id="password"
-            type="password"
-            value={password}
-            onChange={(event) => setPassword(event.target.value)}
-            placeholder="Create a password"
-            required
-          />
+        <div className="mt-8 border-t border-slate-100 pt-6 text-center">
+          <p className="text-sm text-slate-500">
+            Already activated your account?
+          </p>
+
+          <Link
+            href="/login"
+            className="mt-2 inline-block text-sm font-semibold text-blue-700 hover:underline"
+          >
+            Sign in to Prayas Prep
+          </Link>
         </div>
-
-        <div>
-          <label htmlFor="confirmPassword">Confirm Password</label>
-          <input
-            id="confirmPassword"
-            type="password"
-            value={confirmPassword}
-            onChange={(event) => setConfirmPassword(event.target.value)}
-            placeholder="Confirm your password"
-            required
-          />
-        </div>
-
-        {error && <p>{error}</p>}
-
-        {message && <p>{message}</p>}
-
-        <button type="submit" disabled={loading}>
-          {loading ? "Creating account..." : "Create Account"}
-        </button>
-      </form>
+      </div>
     </main>
   );
 }

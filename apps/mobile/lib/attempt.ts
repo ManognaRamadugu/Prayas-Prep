@@ -331,187 +331,145 @@ export async function getHistoricalPracticeReview(
     throw new Error("User is not authenticated.");
   }
 
-  // First verify that this attempt belongs to the authenticated user
-  // and is a completed practice attempt.
-  const { data: attempt, error: attemptError } = await supabase
-    .from("attempts")
-    .select("id, student_id, test_id, status")
-    .eq("id", attemptId)
-    .eq("student_id", user.id)
-    .eq("test_id", PRACTICE_TEST_ID)
-    .eq("status", "SUBMITTED")
-    .single();
-
-  if (attemptError) {
-    console.error(
-      "Error loading historical practice attempt:",
-      attemptError
-    );
-    throw attemptError;
-  }
-
-  if (!attempt) {
-    throw new Error("Practice attempt not found.");
-  }
-
-  // Get the questions exactly in the order in which they appeared.
-  const { data: attemptQuestions, error: attemptQuestionsError } =
-    await supabase
-      .from("attempt_questions")
-      .select("id, question_id, question_order")
-      .eq("attempt_id", attemptId)
-      .order("question_order", { ascending: true });
-
-  if (attemptQuestionsError) {
-    console.error(
-      "Error loading historical attempt questions:",
-      attemptQuestionsError
-    );
-    throw attemptQuestionsError;
-  }
-
-  if (!attemptQuestions || attemptQuestions.length === 0) {
-    return [];
-  }
-
-  const questionIds = attemptQuestions.map(
-    (item) => item.question_id
+  const { data, error } = await supabase.rpc(
+    "get_historical_practice_review",
+    {
+      p_attempt_id: attemptId,
+    }
   );
 
-  const attemptQuestionIds = attemptQuestions.map(
-    (item) => item.id
-  );
-
-  // Get the question content.
-  const { data: questions, error: questionsError } = await supabase
-    .from("questions")
-    .select(
-      "id, question_text, explanation, hint, marks, negative_marks"
-    )
-    .in("id", questionIds);
-
-  if (questionsError) {
+  if (error) {
     console.error(
-      "Error loading historical questions:",
-      questionsError
+      "Error loading historical practice review:",
+      error
     );
-    throw questionsError;
+    throw error;
   }
 
-  // Get every option for every question.
-  const { data: options, error: optionsError } = await supabase
-    .from("question_options")
-    .select(
-      "id, question_id, option_text, option_order, is_correct"
-    )
-    .in("question_id", questionIds)
-    .order("option_order", { ascending: true });
+  type ReviewRow = {
+    attempt_question_id: string;
+    question_id: string;
+    question_order: number;
+    question_text: string;
+    explanation: string | null;
+    hint: string | null;
+    marks: number;
+    negative_marks: number;
+    option_id: string;
+    option_text: string;
+    option_order: number;
+    is_correct: boolean;
+    selected_option_id: string | null;
+    answer_is_correct: boolean | null;
+    marks_awarded: number | null;
+    time_taken_seconds: number | null;
+  };
 
-  if (optionsError) {
-    console.error(
-      "Error loading historical question options:",
-      optionsError
-    );
-    throw optionsError;
-  }
+  const rows = (data ?? []) as ReviewRow[];
 
-  // Get the student's saved answers for this exact attempt.
-  const { data: answers, error: answersError } = await supabase
-    .from("student_answers")
-    .select(
-      "id, attempt_question_id, selected_option_id, is_correct, marks_awarded, time_taken_seconds"
-    )
-    .in("attempt_question_id", attemptQuestionIds);
-
-  if (answersError) {
-    console.error(
-      "Error loading historical student answers:",
-      answersError
-    );
-    throw answersError;
-  }
-
-  const questionMap = new Map(
-    (questions ?? []).map((question) => [
-      question.id,
-      question,
-    ])
-  );
-
-  const optionsByQuestion = new Map<
+  const grouped = new Map<
     string,
-    HistoricalReviewOption[]
+    {
+      question: ReviewRow;
+      options: HistoricalReviewOption[];
+      selectedOptionId: string | null;
+      answerIsCorrect: boolean | null;
+      marksAwarded: number;
+      timeTakenSeconds: number;
+    }
   >();
 
-  for (const option of options ?? []) {
-    const existing =
-      optionsByQuestion.get(option.question_id) ?? [];
+  for (const row of rows) {
+    let item = grouped.get(row.attempt_question_id);
 
-    existing.push({
-      id: option.id,
-      optionText: option.option_text,
-      optionOrder: Number(option.option_order),
-      isCorrect: Boolean(option.is_correct),
-    });
+    if (!item) {
+      item = {
+        question: row,
+        options: [],
+        selectedOptionId: row.selected_option_id,
+        answerIsCorrect: row.answer_is_correct,
+        marksAwarded: Number(row.marks_awarded ?? 0),
+        timeTakenSeconds: Number(
+          row.time_taken_seconds ?? 0
+        ),
+      };
 
-    optionsByQuestion.set(option.question_id, existing);
-  }
-
-  const answerMap = new Map(
-    (answers ?? []).map((answer) => [
-      answer.attempt_question_id,
-      answer,
-    ])
-  );
-
-  return attemptQuestions.map((attemptQuestion) => {
-    const question = questionMap.get(attemptQuestion.question_id);
-
-    if (!question) {
-      throw new Error(
-        `Question ${attemptQuestion.question_id} could not be loaded.`
-      );
+      grouped.set(row.attempt_question_id, item);
     }
 
-    const questionOptions =
-      optionsByQuestion.get(attemptQuestion.question_id) ?? [];
+    item.options.push({
+      id: row.option_id,
+      optionText: row.option_text,
+      optionOrder: Number(row.option_order),
+      isCorrect: Boolean(row.is_correct),
+    });
+  }
 
-    const answer = answerMap.get(attemptQuestion.id);
+  return Array.from(grouped.values())
+    .sort(
+      (a, b) =>
+        Number(a.question.question_order) -
+        Number(b.question.question_order)
+    )
+    .map((item) => {
+      const question = item.question;
 
-    const selectedOptionId =
-      answer?.selected_option_id ?? null;
+      const selectedOption =
+        item.options.find(
+          (option) =>
+            option.id === item.selectedOptionId
+        ) ?? null;
 
-    const selectedOption =
-      questionOptions.find(
-        (option) => option.id === selectedOptionId
-      ) ?? null;
+      const correctOption =
+        item.options.find(
+          (option) => option.isCorrect
+        ) ?? null;
 
-    const correctOption =
-      questionOptions.find((option) => option.isCorrect) ??
-      null;
+      return {
+        attemptQuestionId:
+          question.attempt_question_id,
 
-    return {
-      attemptQuestionId: attemptQuestion.id,
-      questionId: attemptQuestion.question_id,
-      questionOrder: Number(attemptQuestion.question_order),
-      questionText: question.question_text,
-      explanation: question.explanation ?? null,
-      hint: question.hint ?? null,
-      marks: Number(question.marks ?? 0),
-      negativeMarks: Number(question.negative_marks ?? 0),
-      options: questionOptions,
-      selectedOptionId,
-      selectedOptionText: selectedOption?.optionText ?? null,
-      correctOptionId: correctOption?.id ?? null,
-      correctOptionText: correctOption?.optionText ?? null,
-      isCorrect:
-        answer?.is_correct === undefined
-          ? null
-          : Boolean(answer.is_correct),
-      marksAwarded: Number(answer?.marks_awarded ?? 0),
-      timeTakenSeconds: Number(
-        answer?.time_taken_seconds ?? 0
-      ),
-    };
-  });
+        questionId: question.question_id,
+
+        questionOrder: Number(
+          question.question_order
+        ),
+
+        questionText: question.question_text,
+
+        explanation: question.explanation ?? null,
+
+        hint: question.hint ?? null,
+
+        marks: Number(question.marks ?? 0),
+
+        negativeMarks: Number(
+          question.negative_marks ?? 0
+        ),
+
+        options: item.options.sort(
+          (a, b) =>
+            a.optionOrder - b.optionOrder
+        ),
+
+        selectedOptionId:
+          item.selectedOptionId,
+
+        selectedOptionText:
+          selectedOption?.optionText ?? null,
+
+        correctOptionId:
+          correctOption?.id ?? null,
+
+        correctOptionText:
+          correctOption?.optionText ?? null,
+
+        isCorrect: item.answerIsCorrect,
+
+        marksAwarded: item.marksAwarded,
+
+        timeTakenSeconds:
+          item.timeTakenSeconds,
+      };
+    });
 }
